@@ -1,10 +1,12 @@
 import { getCachedJson, putCachedJson, readCachedString } from "./lib/kv"
 import {
   badRequest,
+  handleCorsPreflight,
   json,
   methodNotAllowed,
   notFound,
-  unauthorized
+  unauthorized,
+  withCors
 } from "./lib/response"
 import type {
   ManualRefreshTarget,
@@ -22,38 +24,48 @@ import type { Env } from "./types"
 
 export default {
   async fetch(request, env): Promise<Response> {
+    const preflight = handleCorsPreflight(request, env.POSTAL_ALLOWED_ORIGINS)
+    if (preflight) {
+      return preflight
+    }
+
     const url = new URL(request.url)
+    let response: Response
 
     if (request.method === "GET") {
       if (url.pathname === "/api/feed/reddit") {
-        return await handleRedditFeedRequest(url, env)
+        response = await handleRedditFeedRequest(url, env)
+        return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
       }
 
       if (url.pathname === "/cdn/meta/pbe_latest.json") {
-        return await handleStaticMetaRequest<StoredPbeMeta>(
+        response = await handleStaticMetaRequest<StoredPbeMeta>(
           "meta:pbe:latest",
           env,
           60 * 60
         )
+        return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
       }
 
       if (url.pathname === "/cdn/meta/patch_latest.json") {
-        return await handleStaticMetaRequest<StoredPatchNotesMeta>(
+        response = await handleStaticMetaRequest<StoredPatchNotesMeta>(
           "meta:patch:latest",
           env,
           60 * 60
         )
+        return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
       }
 
       const patchMatch = url.pathname.match(
         /^\/cdn\/meta\/patch-notes\/([^/]+)\.json$/
       )
       if (patchMatch?.[1]) {
-        return await handleStaticMetaRequest<StoredPatchNotesMeta>(
+        response = await handleStaticMetaRequest<StoredPatchNotesMeta>(
           `meta:patch:${patchMatch[1]}`,
           env,
           60 * 60
         )
+        return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
       }
     }
 
@@ -61,14 +73,17 @@ export default {
       request.method === "POST" &&
       url.pathname.startsWith("/internal/refresh")
     ) {
-      return await handleManualRefresh(request, url, env)
+      response = await handleManualRefresh(request, url, env)
+      return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
     }
 
     if (request.method !== "GET" && request.method !== "POST") {
-      return methodNotAllowed()
+      response = methodNotAllowed()
+      return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
     }
 
-    return notFound()
+    response = notFound()
+    return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
   },
 
   async scheduled(controller, env, ctx): Promise<void> {
