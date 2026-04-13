@@ -1,5 +1,5 @@
 export interface Env {
-  POSTAL_CACHE: KVNamespace
+  POSTS: KVNamespace
   POSTAL_ALLOWED_ORIGINS?: string
   POSTAL_LOCALE?: string
   POSTAL_REFRESH_SECRET?: string

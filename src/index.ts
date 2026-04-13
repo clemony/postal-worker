@@ -1,24 +1,24 @@
 import { getCachedJson, putCachedJson, readCachedString } from "./lib/kv"
 import {
-  badRequest,
-  handleCorsPreflight,
-  json,
-  methodNotAllowed,
-  notFound,
-  unauthorized,
-  withCors
+    badRequest,
+    handleCorsPreflight,
+    json,
+    methodNotAllowed,
+    notFound,
+    unauthorized,
+    withCors
 } from "./lib/response"
 import type {
-  ManualRefreshTarget,
-  StoredPatchNotesMeta,
-  StoredPbeMeta
+    ManualRefreshTarget,
+    StoredPatchNotesMeta,
+    StoredPbeMeta
 } from "./meta/service"
 import { refreshPatchNotesMeta, refreshPbeMeta } from "./meta/service"
 import type { StoredRedditFeed } from "./reddit/service"
 import {
-  filterFeedItems,
-  parseFeedQuery,
-  refreshLeagueOfLegendsRedditFeed
+    filterFeedItems,
+    parseFeedQuery,
+    refreshLeagueOfLegendsRedditFeed
 } from "./reddit/service"
 import type { Env } from "./types"
 
@@ -100,7 +100,7 @@ export default {
 
 async function handleRedditFeedRequest(url: URL, env: Env) {
   const feed = await getCachedJson<StoredRedditFeed>(
-    env.POSTAL_CACHE,
+    env.POSTS,
     "reddit:leagueoflegends:latest"
   )
 
@@ -142,7 +142,7 @@ async function handleStaticMetaRequest<T>(
   env: Env,
   maxAgeSeconds: number
 ) {
-  const payload = await readCachedString(env.POSTAL_CACHE, key)
+  const payload = await readCachedString(env.POSTS, key)
   if (!payload) {
     return notFound()
   }
@@ -202,7 +202,7 @@ async function runRedditRefresh(env: Env) {
   const result = await refreshLeagueOfLegendsRedditFeed(env)
 
   await putCachedJson(
-    env.POSTAL_CACHE,
+    env.POSTS,
     "reddit:leagueoflegends:latest",
     result.feed
   )
@@ -216,7 +216,7 @@ async function runMetaRefresh(env: Env, target: ManualRefreshTarget) {
 
   if (target === "all" || target === "pbe") {
     const pbe = await refreshPbeMeta(locale)
-    await putCachedJson(env.POSTAL_CACHE, "meta:pbe:latest", pbe)
+    await putCachedJson(env.POSTS, "meta:pbe:latest", pbe)
     output.pbe = {
       key: "meta:pbe:latest",
       url: pbe.url
@@ -226,8 +226,8 @@ async function runMetaRefresh(env: Env, target: ManualRefreshTarget) {
   if (target === "all" || target === "patch") {
     const patch = await refreshPatchNotesMeta(locale)
     await Promise.all([
-      putCachedJson(env.POSTAL_CACHE, "meta:patch:latest", patch),
-      putCachedJson(env.POSTAL_CACHE, `meta:patch:${patch.patch}`, patch)
+      putCachedJson(env.POSTS, "meta:patch:latest", patch),
+      putCachedJson(env.POSTS, `meta:patch:${patch.patch}`, patch)
     ])
     output.patch = {
       key: `meta:patch:${patch.patch}`,
