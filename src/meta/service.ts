@@ -8,6 +8,12 @@ const PBE_INFOBOX_IMAGE_RE =
   /<div class="infobox-gallery"[\s\S]*?<img[^>]+src=["']([^"']+)["']/i
 const FOOTER_LAST_MODIFIED_RE =
   /<li[^>]*id=["']footer-info-lastmod["'][^>]*>([\s\S]*?)<\/li>/i
+const RIOT_PATCH_AUTHORS_RE =
+  /<div[^>]*class=["'][^"']*\bauthors\b[^"']*["'][^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>/i
+const RIOT_PATCH_TIME_RE =
+  /<time[^>]*(?:datetime|dateTime)=["']([^"']+)["'][^>]*>/i
+const RIOT_PATCH_TIME_TEXT_RE =
+  /<div[^>]*class=["'][^"']*\bmetadata\b[^"']*["'][^>]*>[\s\S]*?<time[^>]*>([\s\S]*?)<\/time>/i
 
 export type ManualRefreshTarget = "all" | "patch" | "pbe"
 export type StoredPbeMeta = PbeMeta
@@ -79,11 +85,13 @@ function extractMetadataFromHtml(
 
   const author =
     getMetaContent(html, "name", "author") ??
-    getMetaContent(html, "property", "article:author")
+    getMetaContent(html, "property", "article:author") ??
+    extractRiotPatchAuthor(html)
 
   const date =
     getMetaContent(html, "property", "article:published_time") ??
-    getMetaContent(html, "name", "pubdate")
+    getMetaContent(html, "name", "pubdate") ??
+    extractRiotPatchDate(html)
 
   const canonicalUrl =
     extractCanonicalUrl(html) ??
@@ -175,6 +183,21 @@ function extractPbeImage(html: string) {
   }
 
   return new URL(imagePath, PBE_URL).toString()
+}
+
+function extractRiotPatchAuthor(html: string) {
+  const author = html.match(RIOT_PATCH_AUTHORS_RE)?.[1]
+  return author ? decode(stripTags(author)).trim() : null
+}
+
+function extractRiotPatchDate(html: string) {
+  const machineDate = html.match(RIOT_PATCH_TIME_RE)?.[1]?.trim()
+  if (machineDate) {
+    return machineDate
+  }
+
+  const visibleDate = html.match(RIOT_PATCH_TIME_TEXT_RE)?.[1]
+  return visibleDate ? decode(stripTags(visibleDate)).trim() : null
 }
 
 function getCurrentPatch(patches: string[]) {

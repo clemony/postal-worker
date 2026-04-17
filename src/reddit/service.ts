@@ -34,6 +34,7 @@ const REDDIT_HTML_SANITIZE_OPTIONS = {
     "a",
     "blockquote",
     "br",
+    "caption",
     "code",
     "em",
     "h1",
@@ -49,6 +50,12 @@ const REDDIT_HTML_SANITIZE_OPTIONS = {
     "p",
     "pre",
     "strong",
+    "table",
+    "tbody",
+    "td",
+    "th",
+    "thead",
+    "tr",
     "ul"
   ],
   transformTags: {
@@ -106,6 +113,7 @@ interface RedditPost {
   over_18: boolean
   permalink: string
   post_hint?: string
+  spoiler: boolean
   preview?: {
     images?: Array<{
       source?: {
@@ -285,6 +293,7 @@ function normalizeRedditPost(post: RedditPost): Post | null {
       linkFlairText: post.link_flair_text,
       over18: post.over_18,
       postHint: post.post_hint ?? null,
+      spoiler: post.spoiler,
       stickied: post.stickied
     },
     num_comments: post.num_comments ?? 0,

@@ -1,0 +1,15 @@
+{
+  "search.exclude": {
+    "**/node_modules": true
+  },
+  "files.watcherExclude": {
+    "**/node_modules/**": true
+  },
+  "code-runner.enableAppInsights": false,
+  "code-runner.defaultLanguage": "typescript",
+  "code-runner.cwd": "$workspaceRoot",
+  "code-runner.executorMap": {
+    "javascript": "node",
+    "typescript": "pnpm exec tsx"
+  }
+}

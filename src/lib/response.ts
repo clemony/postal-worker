@@ -2,7 +2,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://lolpocket.com",
   "https://www.lolpocket.com",
   "http://localhost:3000",
-  "http://127.0.0.1:3000"
+  "http://127.0.0.1:3000",
+  "http://localhost:8080"
 ]
 
 export function json(
