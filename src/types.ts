@@ -1,4 +1,5 @@
 export interface Env {
+  DB: D1Database
   POSTS: KVNamespace
   POSTAL_ALLOWED_ORIGINS?: string
   POSTAL_LOCALE?: string
@@ -53,10 +54,12 @@ export interface Post {
 }
 
 export interface PostListQuery {
+  flair?: string
   keyword?: string
   keywords?: string[]
   limit?: number
   offset?: number
+  spoiler?: boolean
   subreddit?: string
 }
 

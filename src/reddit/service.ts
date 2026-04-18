@@ -194,10 +194,12 @@ export function parseFeedQuery(url: URL): PostListQuery {
     ?? undefined
 
   return {
+    flair: url.searchParams.get("flair")?.trim() ?? undefined,
     keyword,
     keywords: keywords.length > 0 ? keywords : undefined,
     limit: parsePositiveInteger(url.searchParams.get("limit"), 25, 100),
     offset: parsePositiveInteger(url.searchParams.get("offset"), 0),
+    spoiler: parseBooleanQuery(url.searchParams.get("spoiler")),
     subreddit: url.searchParams.get("subreddit") ?? "leagueoflegends"
   }
 }
@@ -211,6 +213,17 @@ export function filterFeedItems(items: Post[], query: PostListQuery) {
 
   return items.filter((item) => {
     if (item.subreddit !== subreddit) {
+      return false
+    }
+
+    if (query.flair && item.flair !== query.flair) {
+      return false
+    }
+
+    if (
+      typeof query.spoiler === "boolean" &&
+      Boolean(item.metadata.spoiler) !== query.spoiler
+    ) {
       return false
     }
 
@@ -505,6 +518,23 @@ function parsePositiveInteger(
   }
 
   return parsed
+}
+
+function parseBooleanQuery(value: string | null) {
+  if (!value) {
+    return undefined
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (normalized === "true" || normalized === "1") {
+    return true
+  }
+
+  if (normalized === "false" || normalized === "0") {
+    return false
+  }
+
+  return undefined
 }
 
 function getUserAgent(env: Env) {

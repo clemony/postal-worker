@@ -1,26 +1,29 @@
 import { getCachedJson, putCachedJson, readCachedString } from "./lib/kv"
 import {
-    badRequest,
-    handleCorsPreflight,
-    json,
-    methodNotAllowed,
-    notFound,
-    unauthorized,
-    withCors
+  badRequest,
+  handleCorsPreflight,
+  json,
+  methodNotAllowed,
+  notFound,
+  unauthorized,
+  withCors
 } from "./lib/response"
 import type {
-    ManualRefreshTarget,
-    StoredPatchNotesMeta,
-    StoredPbeMeta
+  ManualRefreshTarget,
+  StoredPatchNotesMeta,
+  StoredPbeMeta
 } from "./meta/service"
 import { refreshPatchNotesMeta, refreshPbeMeta } from "./meta/service"
+import { listRedditPosts, upsertRedditPosts } from "./reddit/db"
 import type { StoredRedditFeed } from "./reddit/service"
 import {
-    filterFeedItems,
-    parseFeedQuery,
-    refreshLeagueOfLegendsRedditFeed
+  filterFeedItems,
+  parseFeedQuery,
+  refreshLeagueOfLegendsRedditFeed
 } from "./reddit/service"
 import type { Env } from "./types"
+
+const REDDIT_MAIN_FEED_KEY = "reddit:leagueoflegends:main-feed:v1"
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -50,18 +53,6 @@ export default {
       if (url.pathname === "/cdn/meta/patch_latest.json") {
         response = await handleStaticMetaRequest<StoredPatchNotesMeta>(
           "meta:patch:latest",
-          env,
-          60 * 60
-        )
-        return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
-      }
-
-      const patchMatch = url.pathname.match(
-        /^\/cdn\/meta\/patch-notes\/([^/]+)\.json$/
-      )
-      if (patchMatch?.[1]) {
-        response = await handleStaticMetaRequest<StoredPatchNotesMeta>(
-          `meta:patch:${patchMatch[1]}`,
           env,
           60 * 60
         )
@@ -99,36 +90,41 @@ export default {
 } satisfies ExportedHandler<Env>
 
 async function handleRedditFeedRequest(url: URL, env: Env) {
-  const feed = await getCachedJson<StoredRedditFeed>(
-    env.POSTS,
-    "reddit:leagueoflegends:latest"
-  )
+  const query = parseFeedQuery(url)
+  const useCachedFeed = shouldUseCachedRedditFeed(query)
 
-  if (!feed) {
-    return json(
-      {
-        items: [],
-        total: 0
-      },
-      {
-        status: 404,
-        headers: {
-          "cache-control": "public, max-age=60"
-        }
-      }
+  if (useCachedFeed) {
+    const feed = await getCachedJson<StoredRedditFeed>(
+      env.POSTS,
+      REDDIT_MAIN_FEED_KEY
+    ) ?? await getCachedJson<StoredRedditFeed>(
+      env.POSTS,
+      "reddit:leagueoflegends:latest"
     )
+
+    if (feed) {
+      const filtered = filterFeedItems(feed.items, query)
+      const offset = query.offset ?? 0
+      const limit = query.limit ?? 25
+
+      return json(
+        {
+          items: filtered.slice(offset, offset + limit),
+          total: filtered.length
+        },
+        {
+          headers: {
+            "cache-control": "public, max-age=300"
+          }
+        }
+      )
+    }
   }
 
-  const query = parseFeedQuery(url)
-  const filtered = filterFeedItems(feed.items, query)
-  const offset = query.offset ?? 0
-  const limit = query.limit ?? 25
+  const result = await listRedditPosts(env.DB, query)
 
   return json(
-    {
-      items: filtered.slice(offset, offset + limit),
-      total: filtered.length
-    },
+    result,
     {
       headers: {
         "cache-control": "public, max-age=300"
@@ -201,10 +197,14 @@ function isAuthorized(request: Request, env: Env) {
 async function runRedditRefresh(env: Env) {
   const result = await refreshLeagueOfLegendsRedditFeed(env)
 
+  await upsertRedditPosts(env.DB, result.feed.items)
   await putCachedJson(
     env.POSTS,
-    "reddit:leagueoflegends:latest",
-    result.feed
+    REDDIT_MAIN_FEED_KEY,
+    {
+      ...result.feed,
+      items: result.feed.items.slice(0, 25)
+    }
   )
 
   return result
@@ -225,12 +225,9 @@ async function runMetaRefresh(env: Env, target: ManualRefreshTarget) {
 
   if (target === "all" || target === "patch") {
     const patch = await refreshPatchNotesMeta(locale)
-    await Promise.all([
-      putCachedJson(env.POSTS, "meta:patch:latest", patch),
-      putCachedJson(env.POSTS, `meta:patch:${patch.patch}`, patch)
-    ])
+    await putCachedJson(env.POSTS, "meta:patch:latest", patch)
     output.patch = {
-      key: `meta:patch:${patch.patch}`,
+      key: "meta:patch:latest",
       patch: patch.patch,
       url: patch.url
     }
@@ -241,4 +238,16 @@ async function runMetaRefresh(env: Env, target: ManualRefreshTarget) {
     target,
     ...output
   }
+}
+
+function shouldUseCachedRedditFeed(query: ReturnType<typeof parseFeedQuery>) {
+  return (
+    (query.subreddit ?? "leagueoflegends") === "leagueoflegends" &&
+    !query.keyword &&
+    (!query.keywords || query.keywords.length === 0) &&
+    !query.flair &&
+    typeof query.spoiler !== "boolean" &&
+    (query.offset ?? 0) === 0 &&
+    (query.limit ?? 25) <= 25
+  )
 }

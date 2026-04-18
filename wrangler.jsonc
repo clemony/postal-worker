@@ -14,6 +14,13 @@
       "preview_id": "50cd7cece5204b9895d0c34e02a8acf1",
     },
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "metadata",
+      "database_id": "10423099-1448-4fb6-820c-68357d981450",
+    },
+  ],
   "triggers": {
     "crons": ["17 * * * *", "13 14 * * *"],
   },
