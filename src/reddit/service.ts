@@ -2,7 +2,6 @@ import { decode } from "html-entities"
 import MarkdownIt from "markdown-it"
 import { full as markdownItEmoji } from "markdown-it-emoji"
 import markdownItRedditSpoiler from "markdown-it-reddit-spoiler"
-import markdownItRedditSupsubscript from "markdown-it-reddit-supsubscript"
 import sanitizeHtml from "sanitize-html"
 import type { Env, Post, PostListQuery, PostRefreshResponse, PostVideoProvider } from "../types"
 import { deriveFeedKeywords } from "./keywords"
@@ -15,6 +14,7 @@ const REDDIT_MALFORMED_HEADING_RE = /^(\s{0,3})(#{1,6})([^\s#].*)$/
 const REDDIT_SUBREDDIT_RE = /^([A-Za-z0-9_]+)(?:\/)?(?![A-Za-z0-9_])/
 const REDDIT_SPOILER_OPEN_TAG = "<details><summary>Spoiler</summary>"
 const REDDIT_SPOILER_CLOSE_TAG = "</details>"
+const REDDIT_SUPERSCRIPT_WORD_RE = /^(?:\[[^\]]*\]\([^)]*\)|[^\s^])+/
 const REDDIT_USERNAME_RE = /^([A-Za-z0-9_-]+)(?:\/)?(?![A-Za-z0-9_-])/
 const REDDIT_URL_RE = /^https?:\/\//
 const WHITESPACE_RE = /\s+/g
@@ -446,6 +446,89 @@ function configureRedditAutolinks(renderer: MarkdownIt) {
   }
 }
 
+function configureRedditSuperscript(renderer: MarkdownIt) {
+  renderer.inline.ruler.before(
+    "emphasis",
+    "reddit_superscript",
+    (state: any, silent: boolean) => {
+      const start = state.pos
+
+      if (state.src.charCodeAt(start) !== 0x5E /* ^ */) {
+        return false
+      }
+
+      const next = start + 1
+      if (next >= state.posMax) {
+        return false
+      }
+
+      let content = ""
+      let end = next
+
+      if (state.src.charCodeAt(next) === 0x28 /* ( */) {
+        const closing = findSuperscriptClosingParen(state.src, next + 1, state.posMax)
+        if (closing < 0 || closing === next + 1) {
+          return false
+        }
+
+        content = state.src.slice(next + 1, closing)
+        end = closing + 1
+      } else {
+        const match = state.src.slice(next, state.posMax).match(REDDIT_SUPERSCRIPT_WORD_RE)
+        if (!match?.[0]) {
+          return false
+        }
+
+        content = match[0]
+        end = next + match[0].length
+      }
+
+      if (silent) {
+        return true
+      }
+
+      const open = state.push("sup_open", "sup", 1)
+      open.markup = "^"
+
+      const text = state.push("text", "", 0)
+      text.content = content
+
+      const close = state.push("sup_close", "sup", -1)
+      close.markup = "^"
+
+      state.pos = end
+      return true
+    },
+  )
+}
+
+function findSuperscriptClosingParen(src: string, start: number, max: number) {
+  let depth = 1
+
+  for (let index = start; index < max; index += 1) {
+    const code = src.charCodeAt(index)
+
+    if (code === 0x5C /* \\ */) {
+      index += 1
+      continue
+    }
+
+    if (code === 0x28 /* ( */) {
+      depth += 1
+      continue
+    }
+
+    if (code === 0x29 /* ) */) {
+      depth -= 1
+      if (depth === 0) {
+        return index
+      }
+    }
+  }
+
+  return -1
+}
+
 function createRedditMarkdownRenderer(options?: { nested?: boolean }) {
   const renderer = new MarkdownIt({
     breaks: true,
@@ -454,13 +537,7 @@ function createRedditMarkdownRenderer(options?: { nested?: boolean }) {
   }).use(markdownItEmoji)
 
   configureRedditAutolinks(renderer)
-
-  renderer.use(markdownItRedditSupsubscript, {
-    subscript: false,
-    subscriptParenthesized: false,
-    superscript: true,
-    superscriptParenthesized: true
-  })
+  configureRedditSuperscript(renderer)
 
   if (options?.nested) {
     renderer

@@ -14,7 +14,6 @@
     "markdown-it": "^14.1.1",
     "markdown-it-emoji": "^3.0.0",
     "markdown-it-reddit-spoiler": "^1.0.1",
-    "markdown-it-reddit-supsubscript": "^2.0.1",
     "sanitize-html": "^2.17.2"
   },
   "devDependencies": {

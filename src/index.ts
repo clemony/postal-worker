@@ -64,7 +64,27 @@ export default {
       request.method === "POST" &&
       url.pathname.startsWith("/internal/refresh")
     ) {
-      response = await handleManualRefresh(request, url, env)
+      try {
+        response = await handleManualRefresh(request, url, env)
+      } catch (error) {
+        const target = url.pathname.replace(/^\/internal\/refresh\/?/, "").trim() || null
+        console.error("Manual refresh failed", {
+          error,
+          target,
+          url: request.url
+        })
+
+        response = json(
+          {
+            error: getErrorMessage(error),
+            target
+          },
+          {
+            status: 500
+          }
+        )
+      }
+
       return withCors(request, response, env.POSTAL_ALLOWED_ORIGINS)
     }
 
@@ -250,4 +270,20 @@ function shouldUseCachedRedditFeed(query: ReturnType<typeof parseFeedQuery>) {
     (query.offset ?? 0) === 0 &&
     (query.limit ?? 25) <= 25
   )
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === "string") {
+    return error
+  }
+
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return "Unknown error"
+  }
 }

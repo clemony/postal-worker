@@ -15,22 +15,3 @@ declare module "markdown-it-reddit-spoiler" {
   const plugin: RedditSpoilerPlugin
   export default plugin
 }
-
-declare module "markdown-it-reddit-supsubscript" {
-  import type MarkdownIt from "markdown-it"
-
-  interface RedditSupsubscriptOptions {
-    superscriptParenthesized?: boolean
-    superscript?: boolean
-    subscriptParenthesized?: boolean
-    subscript?: boolean
-  }
-
-  type MarkdownItPlugin = (
-    md: MarkdownIt,
-    options?: RedditSupsubscriptOptions,
-  ) => void
-
-  const plugin: MarkdownItPlugin
-  export default plugin
-}

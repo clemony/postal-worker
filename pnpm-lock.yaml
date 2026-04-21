@@ -20,9 +20,6 @@ importers:
       markdown-it-reddit-spoiler:
         specifier: ^1.0.1
         version: 1.0.1
-      markdown-it-reddit-supsubscript:
-        specifier: ^2.0.1
-        version: 2.0.1
       sanitize-html:
         specifier: ^2.17.2
         version: 2.17.2
@@ -313,10 +310,6 @@ packages:
   '@eslint/plugin-kit@0.7.1':
     resolution: {integrity: sha512-rZAP3aVgB9ds9KOeUSL+zZ21hPmo8dh6fnIFwRQj5EAZl9gzR7wxYbYXYysAM8CTqGmUGyp2S4kUdV17MnGuWQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
-
-  '@gerhobbelt/markdown-it-regexp@0.6.0-15':
-    resolution: {integrity: sha512-cDuG+9naQ0OR+asvayJWn8K+cDX0BdalKQNHngvU8Crksrp99X8VSMo8slNMmx0XvBULcYpi4CBnVkmCkPizbw==}
-    engines: {node: '>=12.21'}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -849,9 +842,6 @@ packages:
   markdown-it-reddit-spoiler@1.0.1:
     resolution: {integrity: sha512-8wxUfbe+wZjnfqHi9/44txv1INAi8YGkDWl7gTV1Zl2bMIJdGdBBp7BFngETU2yB2Kp4Yr7aN2sOUKLKBriLcQ==}
 
-  markdown-it-reddit-supsubscript@2.0.1:
-    resolution: {integrity: sha512-JJbRuOyZ4SLQPywcNHCAZyhulCaoah+IPDkbLX+rFN4czU976H5obWbLmthcvFKHF0Ht/cfojDdDkIIIQR0L3Q==}
-
   markdown-it-regexp@0.4.0:
     resolution: {integrity: sha512-0XQmr46K/rMKnI93Y3CLXsHj4jIioRETTAiVnJnjrZCEkGaDOmUxTbZj/aZ17G5NlRcVpWBYjqpwSlQ9lj+Kxw==}
 
@@ -1226,8 +1216,6 @@ snapshots:
     dependencies:
       '@eslint/core': 1.2.1
       levn: 0.4.1
-
-  '@gerhobbelt/markdown-it-regexp@0.6.0-15': {}
 
   '@humanfs/core@0.19.1': {}
 
@@ -1742,10 +1730,6 @@ snapshots:
     dependencies:
       markdown-it: 10.0.0
       markdown-it-regexp: 0.4.0
-
-  markdown-it-reddit-supsubscript@2.0.1:
-    dependencies:
-      '@gerhobbelt/markdown-it-regexp': 0.6.0-15
 
   markdown-it-regexp@0.4.0: {}
 
