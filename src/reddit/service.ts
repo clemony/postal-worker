@@ -1,6 +1,8 @@
 import { decode } from "html-entities"
 import MarkdownIt from "markdown-it"
 import { full as markdownItEmoji } from "markdown-it-emoji"
+import markdownItRedditSpoiler from "markdown-it-reddit-spoiler"
+import markdownItRedditSupsubscript from "markdown-it-reddit-supsubscript"
 import sanitizeHtml from "sanitize-html"
 import type { Env, Post, PostListQuery, PostRefreshResponse, PostVideoProvider } from "../types"
 import { deriveFeedKeywords } from "./keywords"
@@ -8,6 +10,12 @@ import { deriveFeedKeywords } from "./keywords"
 const REDDIT_FEED_MIN_COMMENTS = 30
 const REDDIT_FEED_MIN_SCORE = 100
 const REDDIT_EXCERPT_MAX_LENGTH = 400
+const REDDIT_MARKDOWN_FENCE_RE = /^\s*(```|~~~)/
+const REDDIT_MALFORMED_HEADING_RE = /^(\s{0,3})(#{1,6})([^\s#].*)$/
+const REDDIT_SUBREDDIT_RE = /^([A-Za-z0-9_]+)(?:\/)?(?![A-Za-z0-9_])/
+const REDDIT_SPOILER_OPEN_TAG = "<details><summary>Spoiler</summary>"
+const REDDIT_SPOILER_CLOSE_TAG = "</details>"
+const REDDIT_USERNAME_RE = /^([A-Za-z0-9_-]+)(?:\/)?(?![A-Za-z0-9_-])/
 const REDDIT_URL_RE = /^https?:\/\//
 const WHITESPACE_RE = /\s+/g
 const YOUTUBE_HOSTS = new Set([
@@ -18,11 +26,7 @@ const YOUTUBE_HOSTS = new Set([
   "youtube-nocookie.com",
   "www.youtube-nocookie.com"
 ])
-const REDDIT_MARKDOWN = new MarkdownIt({
-  breaks: true,
-  html: false,
-  linkify: true
-}).use(markdownItEmoji)
+const REDDIT_REFERENCE_MARKDOWN = new MarkdownIt("zero").enable("reference")
 const REDDIT_HTML_SANITIZE_OPTIONS = {
   allowedAttributes: {
     a: ["href", "rel", "target", "title"],
@@ -36,6 +40,7 @@ const REDDIT_HTML_SANITIZE_OPTIONS = {
     "br",
     "caption",
     "code",
+    "details",
     "em",
     "h1",
     "h2",
@@ -49,6 +54,8 @@ const REDDIT_HTML_SANITIZE_OPTIONS = {
     "ol",
     "p",
     "pre",
+    "summary",
+    "sup",
     "strong",
     "table",
     "tbody",
@@ -388,12 +395,107 @@ function truncateText(value: string, maxLength: number) {
   return `${sliced.slice(0, boundary).trim()}...`
 }
 
+function normalizeRedditMarkdown(value: string) {
+  const lines = value.split(/\r?\n/)
+  let inFence = false
+
+  return lines
+    .map((line) => {
+      if (REDDIT_MARKDOWN_FENCE_RE.test(line)) {
+        inFence = !inFence
+        return line
+      }
+
+      if (inFence) {
+        return line
+      }
+
+      const match = line.match(REDDIT_MALFORMED_HEADING_RE)
+      if (!match) {
+        return line
+      }
+
+      const [, indent, hashes, content] = match
+      const leadingChar = content.charAt(0)
+
+      // Preserve values like "#1" that are more likely text than an intended heading.
+      if (leadingChar >= "0" && leadingChar <= "9") {
+        return line
+      }
+
+      return `${indent}${hashes} ${content}`
+    })
+    .join("\n")
+}
+
+function configureRedditAutolinks(renderer: MarkdownIt) {
+  for (const [prefix, path, pattern] of [
+    ["r/", "r", REDDIT_SUBREDDIT_RE],
+    ["/r/", "r", REDDIT_SUBREDDIT_RE],
+    ["u/", "u", REDDIT_USERNAME_RE],
+    ["/u/", "u", REDDIT_USERNAME_RE]
+  ] as const) {
+    renderer.linkify.add(prefix, {
+      normalize: (match) => {
+        const handle = match.raw.replace(/^\/?[ru]\//, "").replace(/\/$/, "")
+        match.text = match.raw
+        match.url = `https://www.reddit.com/${path}/${handle}`
+      },
+      validate: (text, pos) => text.slice(pos).match(pattern)?.[0].length ?? 0
+    })
+  }
+}
+
+function createRedditMarkdownRenderer(options?: { nested?: boolean }) {
+  const renderer = new MarkdownIt({
+    breaks: true,
+    html: false,
+    linkify: true
+  }).use(markdownItEmoji)
+
+  configureRedditAutolinks(renderer)
+
+  renderer.use(markdownItRedditSupsubscript, {
+    subscript: false,
+    subscriptParenthesized: false,
+    superscript: true,
+    superscriptParenthesized: true
+  })
+
+  if (options?.nested) {
+    renderer
+      .disable("blockquote")
+      .disable("code")
+      .disable("fence")
+      .disable("heading")
+      .disable("hr")
+      .disable("lheading")
+      .disable("list")
+      .disable("table")
+  }
+
+  return renderer
+}
+
 function createTextPost(selftext?: string) {
   if (!selftext) return null
   const decoded = decodeRedditText(selftext)
   if (!decoded) return null
 
-  const rendered = REDDIT_MARKDOWN.render(decoded).trim()
+  const normalized = normalizeRedditMarkdown(decoded)
+  const env: Record<string, unknown> = {}
+  REDDIT_REFERENCE_MARKDOWN.parse(normalized, env)
+
+  markdownItRedditSpoiler.env = env
+  markdownItRedditSpoiler.openTag = REDDIT_SPOILER_OPEN_TAG
+  markdownItRedditSpoiler.closeTag = REDDIT_SPOILER_CLOSE_TAG
+  markdownItRedditSpoiler.nestedRenderer = () => createRedditMarkdownRenderer({ nested: true })
+
+  const rendered = createRedditMarkdownRenderer()
+    .use(markdownItRedditSpoiler.spoiler)
+    .use(markdownItRedditSpoiler.blockquote)
+    .render(normalized, env)
+    .trim()
   if (!rendered) return null
 
   const sanitized = sanitizeHtml(rendered, REDDIT_HTML_SANITIZE_OPTIONS).trim()
