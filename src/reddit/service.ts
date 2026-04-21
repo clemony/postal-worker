@@ -11,6 +11,7 @@ const REDDIT_FEED_MIN_SCORE = 100
 const REDDIT_EXCERPT_MAX_LENGTH = 400
 const REDDIT_MARKDOWN_FENCE_RE = /^\s*(```|~~~)/
 const REDDIT_MALFORMED_HEADING_RE = /^(\s{0,3})(#{1,6})([^\s#].*)$/
+const REDDIT_QUOTED_LINE_RE = /^\s{0,3}>/
 const REDDIT_SUBREDDIT_RE = /^([A-Za-z0-9_]+)(?:\/)?(?![A-Za-z0-9_])/
 const REDDIT_SPOILER_OPEN_TAG = "<details><summary>Spoiler</summary>"
 const REDDIT_SPOILER_CLOSE_TAG = "</details>"
@@ -399,33 +400,39 @@ function normalizeRedditMarkdown(value: string) {
   const lines = value.split(/\r?\n/)
   let inFence = false
 
-  return lines
-    .map((line) => {
-      if (REDDIT_MARKDOWN_FENCE_RE.test(line)) {
-        inFence = !inFence
-        return line
-      }
+  return lines.map((line, index) => {
+    if (REDDIT_MARKDOWN_FENCE_RE.test(line)) {
+      inFence = !inFence
+      return line
+    }
 
-      if (inFence) {
-        return line
-      }
+    if (inFence) {
+      return line
+    }
 
-      const match = line.match(REDDIT_MALFORMED_HEADING_RE)
-      if (!match) {
-        return line
-      }
+    if (
+      line.trim() === "" &&
+      REDDIT_QUOTED_LINE_RE.test(lines[index - 1] ?? "") &&
+      REDDIT_QUOTED_LINE_RE.test(lines[index + 1] ?? "")
+    ) {
+      return ">"
+    }
 
-      const [, indent, hashes, content] = match
-      const leadingChar = content.charAt(0)
+    const match = line.match(REDDIT_MALFORMED_HEADING_RE)
+    if (!match) {
+      return line
+    }
 
-      // Preserve values like "#1" that are more likely text than an intended heading.
-      if (leadingChar >= "0" && leadingChar <= "9") {
-        return line
-      }
+    const [, indent, hashes, content] = match
+    const leadingChar = content.charAt(0)
 
-      return `${indent}${hashes} ${content}`
-    })
-    .join("\n")
+    // Preserve values like "#1" that are more likely text than an intended heading.
+    if (leadingChar >= "0" && leadingChar <= "9") {
+      return line
+    }
+
+    return `${indent}${hashes} ${content}`
+  }).join("\n")
 }
 
 function configureRedditAutolinks(renderer: MarkdownIt) {
@@ -577,6 +584,10 @@ function createTextPost(selftext?: string) {
 
   const sanitized = sanitizeHtml(rendered, REDDIT_HTML_SANITIZE_OPTIONS).trim()
   return sanitized || null
+}
+
+export function renderRedditSelftext(selftext?: string) {
+  return createTextPost(selftext)
 }
 
 function createExcerpt(text: string | undefined) {
