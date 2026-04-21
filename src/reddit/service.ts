@@ -12,6 +12,7 @@ const REDDIT_EXCERPT_MAX_LENGTH = 400
 const REDDIT_MARKDOWN_FENCE_RE = /^\s*(```|~~~)/
 const REDDIT_MALFORMED_HEADING_RE = /^(\s{0,3})(#{1,6})([^\s#].*)$/
 const REDDIT_QUOTED_LINE_RE = /^\s{0,3}>/
+const REDDIT_STANDALONE_MARKDOWN_LINK_RE = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/
 const REDDIT_SUBREDDIT_RE = /^([A-Za-z0-9_]+)(?:\/)?(?![A-Za-z0-9_])/
 const REDDIT_SPOILER_OPEN_TAG = "<details><summary>Spoiler</summary>"
 const REDDIT_SPOILER_CLOSE_TAG = "</details>"
@@ -279,11 +280,12 @@ function normalizeRedditPost(post: RedditPost): Post | null {
   const url = decodeRedditUrl(post.url_overridden_by_dest ?? post.url)
   const preview = decodeRedditUrl(post.preview?.images?.[0]?.source?.url)
   const thumbnail = decodeRedditUrl(post.thumbnail)
+  const decodedSelftext = decodeRedditText(post.selftext)
 
   if (!permalink || !url) return null
 
   const resolvedUrl = post.is_self ? permalink : url
-  const { videoId, videoProvider } = extractYouTubeVideo(resolvedUrl)
+  const topLevelYouTube = extractYouTubeVideo(resolvedUrl)
   const {
     videoDashUrl,
     videoDuration,
@@ -292,13 +294,34 @@ function normalizeRedditPost(post: RedditPost): Post | null {
     videoUrl,
     videoWidth
   } = extractRedditVideo(post)
+  const inlineMedia = post.is_self
+    ? extractInlineMedia(decodedSelftext)
+    : {
+        videoDashUrl: null,
+        videoHlsUrl: null,
+        videoId: null,
+        videoProvider: null,
+        videoUrl: null,
+      }
+  const resolvedVideoId = topLevelYouTube.videoId ?? inlineMedia.videoId
   const resolvedVideoProvider: PostVideoProvider | null =
-    videoProvider ?? (videoUrl || videoHlsUrl || videoDashUrl ? "reddit" : null)
+    topLevelYouTube.videoProvider ??
+    (videoUrl || videoHlsUrl || videoDashUrl ? "reddit" : null) ??
+    inlineMedia.videoProvider
+  const resolvedVideoUrl = videoUrl ?? inlineMedia.videoUrl
+  const resolvedVideoHlsUrl = videoHlsUrl ?? inlineMedia.videoHlsUrl
+  const resolvedVideoDashUrl = videoDashUrl ?? inlineMedia.videoDashUrl
+  const hasResolvedVideo = Boolean(
+    resolvedVideoId ||
+    resolvedVideoUrl ||
+    resolvedVideoHlsUrl ||
+    resolvedVideoDashUrl,
+  )
 
   return {
     author: post.author || null,
-    excerpt: post.is_self ? createExcerpt(post.selftext) : null,
-    text: createTextPost(post.selftext),
+    excerpt: post.is_self ? createExcerpt(decodedSelftext ?? undefined) : null,
+    text: createTextPost(decodedSelftext ?? undefined),
     fetched_at: new Date().toISOString(),
     flair: post.link_flair_text,
     keywords: deriveFeedKeywords({
@@ -310,7 +333,7 @@ function normalizeRedditPost(post: RedditPost): Post | null {
       authorIsBlocked: post.author_is_blocked,
       domain: post.domain ?? null,
       isSelf: post.is_self,
-      isVideo: post.is_video,
+      isVideo: post.is_video || hasResolvedVideo,
       linkFlairText: post.link_flair_text,
       over18: post.over_18,
       postHint: post.post_hint ?? null,
@@ -328,13 +351,13 @@ function normalizeRedditPost(post: RedditPost): Post | null {
     thumbnail_url: thumbnail,
     title: post.title,
     url: resolvedUrl,
-    video_dash_url: videoDashUrl,
+    video_dash_url: resolvedVideoDashUrl,
     video_duration: videoDuration,
     video_height: videoHeight,
-    video_hls_url: videoHlsUrl,
-    video_id: videoId,
+    video_hls_url: resolvedVideoHlsUrl,
+    video_id: resolvedVideoId,
     video_provider: resolvedVideoProvider,
-    video_url: videoUrl,
+    video_url: resolvedVideoUrl,
     video_width: videoWidth
   }
 }
@@ -418,6 +441,11 @@ function normalizeRedditMarkdown(value: string) {
       return ">"
     }
 
+    const imageLine = normalizeStandaloneImageLine(line)
+    if (imageLine) {
+      return imageLine
+    }
+
     const match = line.match(REDDIT_MALFORMED_HEADING_RE)
     if (!match) {
       return line
@@ -433,6 +461,23 @@ function normalizeRedditMarkdown(value: string) {
 
     return `${indent}${hashes} ${content}`
   }).join("\n")
+}
+
+function normalizeStandaloneImageLine(line: string) {
+  const trimmed = line.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const markdownLinkMatch = trimmed.match(REDDIT_STANDALONE_MARKDOWN_LINK_RE)
+  const candidateUrl = markdownLinkMatch?.[2] ?? trimmed
+  const imageUrl = extractInlineImageUrl(candidateUrl)
+
+  if (!imageUrl) {
+    return null
+  }
+
+  return `![](${imageUrl})`
 }
 
 function configureRedditAutolinks(renderer: MarkdownIt) {
@@ -640,6 +685,149 @@ function extractYouTubeVideo(url?: string | null): {
   return {
     videoId: embeddedVideoId,
     videoProvider: embeddedVideoId ? "youtube" : null
+  }
+}
+
+function extractInlineMedia(text?: string | null) {
+  const urls = text ? collectUrlsFromText(text) : []
+
+  for (const url of urls) {
+    const youtube = extractYouTubeVideo(url)
+    if (youtube.videoId && youtube.videoProvider) {
+      return {
+        videoDashUrl: null,
+        videoHlsUrl: null,
+        videoId: youtube.videoId,
+        videoProvider: youtube.videoProvider,
+        videoUrl: null,
+      }
+    }
+
+    const redditVideo = extractInlineRedditVideo(url)
+    if (
+      redditVideo.videoProvider &&
+      (redditVideo.videoUrl || redditVideo.videoHlsUrl || redditVideo.videoDashUrl)
+    ) {
+      return {
+        videoDashUrl: redditVideo.videoDashUrl,
+        videoHlsUrl: redditVideo.videoHlsUrl,
+        videoId: null,
+        videoProvider: redditVideo.videoProvider,
+        videoUrl: redditVideo.videoUrl,
+      }
+    }
+  }
+
+  return {
+    videoDashUrl: null,
+    videoHlsUrl: null,
+    videoId: null,
+    videoProvider: null,
+    videoUrl: null,
+  }
+}
+
+function collectUrlsFromText(text: string) {
+  return [...text.matchAll(/https?:\/\/[^\s<>()]+/g)]
+    .map((match) => cleanupInlineUrl(match[0]))
+    .filter(Boolean)
+}
+
+function cleanupInlineUrl(url: string) {
+  return url.replace(/[),.!?"']+$/g, "")
+}
+
+function extractInlineImageUrl(url?: string | null) {
+  if (!url) return null
+
+  let parsedUrl: URL
+
+  try {
+    parsedUrl = new URL(url)
+  } catch {
+    return null
+  }
+
+  const pathname = parsedUrl.pathname.toLowerCase()
+  const isRedditImageHost = ["preview.redd.it", "i.redd.it"].includes(parsedUrl.hostname)
+  const hasImageExtension = [".avif", ".gif", ".jpeg", ".jpg", ".png", ".webp"].some((ext) =>
+    pathname.endsWith(ext),
+  )
+
+  if (!isRedditImageHost && !hasImageExtension) {
+    return null
+  }
+
+  return url
+}
+
+function extractInlineRedditVideo(url?: string | null) {
+  if (!url) {
+    return {
+      videoDashUrl: null,
+      videoHlsUrl: null,
+      videoProvider: null,
+      videoUrl: null,
+    }
+  }
+
+  let parsedUrl: URL
+
+  try {
+    parsedUrl = new URL(url)
+  } catch {
+    return {
+      videoDashUrl: null,
+      videoHlsUrl: null,
+      videoProvider: null,
+      videoUrl: null,
+    }
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase()
+  const pathname = parsedUrl.pathname
+
+  if (hostname !== "v.redd.it" && hostname !== "www.reddit.com" && hostname !== "reddit.com") {
+    return {
+      videoDashUrl: null,
+      videoHlsUrl: null,
+      videoProvider: null,
+      videoUrl: null,
+    }
+  }
+
+  if (pathname.endsWith(".m3u8") || pathname.includes("HLSPlaylist")) {
+    return {
+      videoDashUrl: null,
+      videoHlsUrl: url,
+      videoProvider: "reddit" as const,
+      videoUrl: null,
+    }
+  }
+
+  if (pathname.endsWith(".mpd") || pathname.includes("DASHPlaylist")) {
+    return {
+      videoDashUrl: url,
+      videoHlsUrl: null,
+      videoProvider: "reddit" as const,
+      videoUrl: null,
+    }
+  }
+
+  if (pathname.endsWith(".mp4") || pathname.endsWith(".webm") || pathname.includes("DASH_")) {
+    return {
+      videoDashUrl: null,
+      videoHlsUrl: null,
+      videoProvider: "reddit" as const,
+      videoUrl: url,
+    }
+  }
+
+  return {
+    videoDashUrl: null,
+    videoHlsUrl: null,
+    videoProvider: null,
+    videoUrl: null,
   }
 }
 
